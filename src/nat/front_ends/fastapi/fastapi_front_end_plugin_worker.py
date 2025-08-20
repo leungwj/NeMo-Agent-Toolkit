@@ -1093,9 +1093,8 @@ class FastApiFrontEndPluginWorker(FastApiFrontEndPluginWorkerBase):
         from pydantic import BaseModel, Field
         from llama_index.core import Document, VectorStoreIndex, Settings
         from llama_index.core.node_parser import SimpleFileNodeParser
-        from llama_index.vector_stores.chroma import ChromaVectorStore
+        from llama_index.vector_stores.milvus import MilvusVectorStore
         from llama_index.core.storage.storage_context import StorageContext
-        import chromadb
         import os
 
         class IndexDocumentRequest(BaseModel):
@@ -1114,9 +1113,10 @@ class FastApiFrontEndPluginWorker(FastApiFrontEndPluginWorkerBase):
             document_id: str
             nodes_added: int
 
-        # Initialize ChromaDB (persistent storage)
-        persist_dir = "./chroma_db"
-        os.makedirs(persist_dir, exist_ok=True)
+        # Milvus connection settings
+        milvus_host = os.getenv("MILVUS_HOST", "localhost")
+        milvus_port = os.getenv("MILVUS_PORT", "19530")
+        milvus_uri = f"http://{milvus_host}:{milvus_port}"
 
         # Get embedder from config (assuming nim_embedder exists in your config)
         embedder = None
@@ -1127,6 +1127,11 @@ class FastApiFrontEndPluginWorker(FastApiFrontEndPluginWorkerBase):
                 "nim_embedder", wrapper_type=LLMFrameworkEnum.LLAMA_INDEX
             )
             logger.info("Successfully loaded embedder for document indexing")
+
+            # Get embedding dimensions dynamically
+            test_embedding = await embedder.aget_text_embedding("test")
+            embedding_dim = len(test_embedding)
+            logger.info("Detected embedding dimension: %d", embedding_dim)
         except Exception as e:
             logger.warning(
                 "Could not load embedder: %s. Document indexing route will not be available.",
@@ -1141,12 +1146,17 @@ class FastApiFrontEndPluginWorker(FastApiFrontEndPluginWorkerBase):
             Index a document into the vector store
             """
             try:
-                # Initialize ChromaDB client
-                client = chromadb.PersistentClient(path=persist_dir)
-                collection = client.get_or_create_collection(request.collection_name)
+                # Create Milvus vector store with correct URI format
+                vector_store = MilvusVectorStore(
+                    uri=milvus_uri,  # Use URI instead of host/port
+                    collection_name=request.collection_name,
+                    dim=embedding_dim,  # Use detected dimension
+                    overwrite=False,
+                    # Additional optional parameters
+                    consistency_level="Session",  # Ensures read consistency
+                    drop_old=False,  # Don't drop existing collections
+                )
 
-                # Create ChromaVectorStore
-                vector_store = ChromaVectorStore(chroma_collection=collection)
                 storage_context = StorageContext.from_defaults(
                     vector_store=vector_store
                 )
@@ -1155,14 +1165,34 @@ class FastApiFrontEndPluginWorker(FastApiFrontEndPluginWorkerBase):
                 Settings.embed_model = embedder
 
                 # Create document
-                doc_id = request.document_id or f"doc_{len(request.content)}"
+                doc_id = request.document_id or f"doc_{hash(request.content)}"
+
+                # Ensure metadata includes source information
+                document_metadata = {
+                    "source": f"api_upload_{doc_id}",
+                    "document_type": "api_indexed",
+                    **request.metadata,
+                }
+
                 document = Document(
-                    text=request.content, doc_id=doc_id, metadata=request.metadata
+                    text=request.content, doc_id=doc_id, metadata=document_metadata
                 )
 
                 # Parse into nodes
                 parser = SimpleFileNodeParser()
                 nodes = parser.get_nodes_from_documents([document])
+
+                # Ensure each node has proper metadata
+                for i, node in enumerate(nodes):
+                    node.metadata.update(
+                        {
+                            "chunk_id": f"{doc_id}_chunk_{i}",
+                            "total_chunks": len(nodes),
+                            **document_metadata,
+                        }
+                    )
+
+                logger.info("Created %d nodes from document %s", len(nodes), doc_id)
 
                 # Create or get existing index
                 try:
@@ -1172,24 +1202,42 @@ class FastApiFrontEndPluginWorker(FastApiFrontEndPluginWorkerBase):
                         storage_context=storage_context,
                         embed_model=embedder,
                     )
-                except Exception:
+                    logger.info(
+                        "Using existing index for collection: %s",
+                        request.collection_name,
+                    )
+                except Exception as e:
+                    logger.info(
+                        "Creating new index for collection %s: %s",
+                        request.collection_name,
+                        e,
+                    )
                     # Create new index if none exists
                     index = VectorStoreIndex(
                         [], storage_context=storage_context, embed_model=embedder
                     )
+                # Insert nodes into the index
+                logger.info(
+                    "Inserting %d nodes into collection %s",
+                    len(nodes),
+                    request.collection_name,
+                )
 
                 # Add nodes to index
                 index.insert_nodes(nodes)
 
                 return IndexDocumentResponse(
                     success=True,
-                    message=f"Successfully indexed document with {len(nodes)} nodes",
+                    message=f"Successfully indexed document into Milvus collection '{request.collection_name}' with {len(nodes)} nodes",
                     document_id=doc_id,
                     nodes_added=len(nodes),
                 )
 
             except Exception as e:
                 logger.error("Error indexing document: %s", e)
+                import traceback
+
+                logger.error("Full traceback: %s", traceback.format_exc())
                 return IndexDocumentResponse(
                     success=False,
                     message=f"Error indexing document: {str(e)}",
@@ -1221,4 +1269,6 @@ class FastApiFrontEndPluginWorker(FastApiFrontEndPluginWorkerBase):
             },
         )
 
-        logger.info("Added /index_document route to FastAPI app")
+        logger.info(
+            "Added /index_document route with Milvus vector store to FastAPI app"
+        )
