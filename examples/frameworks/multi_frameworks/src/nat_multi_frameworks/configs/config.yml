@@ -23,7 +23,10 @@ functions:
   llama_index_rag:
     _type: llama_index_rag
     llm_name: nim_llm
-    model_name : meta/llama-3.1-405b-instruct
+    model_name : meta/llama-3.3-70b-instruct
+    # model_name : meta/llama-3.1-405b-instruct
+    # model_name : meta/llama-4-scout-17b-16e-instruct
+    # model_name : nvidia/llama-3.3-nemotron-super-49b-v1.5
     embedding_name : nim_embedder
   # langchain_researcher_tool:
   #   _type: langchain_researcher_tool
@@ -39,7 +42,10 @@ functions:
 llms:
   nim_llm:
     _type: nim
-    model_name : meta/llama-3.1-405b-instruct
+    model_name : meta/llama-3.3-70b-instruct
+    # model_name: meta/llama-3.1-405b-instruct
+    # model_name : meta/llama-4-scout-17b-16e-instruct
+    # model_name : nvidia/llama-3.3-nemotron-super-49b-v1.5
     temperature: 0.0
 
 embedders:
@@ -56,3 +62,13 @@ workflow:
   # research_tool: langchain_researcher_tool
   # chitchat_agent: haystack_chitchat_agent
   chitchat_agent: langchain_general_agent
+
+# Valid models for use in the workflow
+# Only these models are allowed:
+# - meta/llama-3.3-70b-instruct
+# - meta/llama-3.1-405b-instruct
+
+# Invalid models (commented out for clarity)
+# model_name: nvidia/nemotron
+# model_name: meta/llama-4-scout-17b-16e-instruct
+# model_name: nvidia/llama-3.3-nemotron-super-49b-v1.5
