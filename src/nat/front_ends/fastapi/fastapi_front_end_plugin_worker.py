@@ -251,6 +251,7 @@ class FastApiFrontEndPluginWorker(FastApiFrontEndPluginWorkerBase):
         await self.add_evaluate_route(app, SessionManager(builder.build()))
         await self.add_static_files_route(app, builder)
         await self.add_authorization_route(app)
+        await self.add_document_indexing_route(app, builder)
 
         for ep in self.front_end_config.endpoints:
 
@@ -1085,3 +1086,139 @@ class FastApiFrontEndPluginWorker(FastApiFrontEndPluginWorkerBase):
     async def _remove_flow(self, state: str):
         async with self._outstanding_flows_lock:
             del self._outstanding_flows[state]
+
+    async def add_document_indexing_route(self, app: FastAPI, builder: WorkflowBuilder):
+        """Add a simple document indexing endpoint."""
+
+        from pydantic import BaseModel, Field
+        from llama_index.core import Document, VectorStoreIndex, Settings
+        from llama_index.core.node_parser import SimpleFileNodeParser
+        from llama_index.vector_stores.chroma import ChromaVectorStore
+        from llama_index.core.storage.storage_context import StorageContext
+        import chromadb
+        import os
+
+        class IndexDocumentRequest(BaseModel):
+            content: str = Field(..., description="Document content to index")
+            document_id: str = Field(default=None, description="Optional document ID")
+            metadata: dict = Field(
+                default_factory=dict, description="Optional metadata for the document"
+            )
+            collection_name: str = Field(
+                default="documents", description="Collection name for the vector store"
+            )
+
+        class IndexDocumentResponse(BaseModel):
+            success: bool
+            message: str
+            document_id: str
+            nodes_added: int
+
+        # Initialize ChromaDB (persistent storage)
+        persist_dir = "./chroma_db"
+        os.makedirs(persist_dir, exist_ok=True)
+
+        # Get embedder from config (assuming nim_embedder exists in your config)
+        embedder = None
+        try:
+            from nat.builder.framework_enum import LLMFrameworkEnum
+
+            embedder = await builder.get_embedder(
+                "nim_embedder", wrapper_type=LLMFrameworkEnum.LLAMA_INDEX
+            )
+            logger.info("Successfully loaded embedder for document indexing")
+        except Exception as e:
+            logger.warning(
+                "Could not load embedder: %s. Document indexing route will not be available.",
+                e,
+            )
+            return
+
+        async def index_document(
+            request: IndexDocumentRequest,
+        ) -> IndexDocumentResponse:
+            """
+            Index a document into the vector store
+            """
+            try:
+                # Initialize ChromaDB client
+                client = chromadb.PersistentClient(path=persist_dir)
+                collection = client.get_or_create_collection(request.collection_name)
+
+                # Create ChromaVectorStore
+                vector_store = ChromaVectorStore(chroma_collection=collection)
+                storage_context = StorageContext.from_defaults(
+                    vector_store=vector_store
+                )
+
+                # Set embedder
+                Settings.embed_model = embedder
+
+                # Create document
+                doc_id = request.document_id or f"doc_{len(request.content)}"
+                document = Document(
+                    text=request.content, doc_id=doc_id, metadata=request.metadata
+                )
+
+                # Parse into nodes
+                parser = SimpleFileNodeParser()
+                nodes = parser.get_nodes_from_documents([document])
+
+                # Create or get existing index
+                try:
+                    # Try to load existing index
+                    index = VectorStoreIndex.from_vector_store(
+                        vector_store,
+                        storage_context=storage_context,
+                        embed_model=embedder,
+                    )
+                except Exception:
+                    # Create new index if none exists
+                    index = VectorStoreIndex(
+                        [], storage_context=storage_context, embed_model=embedder
+                    )
+
+                # Add nodes to index
+                index.insert_nodes(nodes)
+
+                return IndexDocumentResponse(
+                    success=True,
+                    message=f"Successfully indexed document with {len(nodes)} nodes",
+                    document_id=doc_id,
+                    nodes_added=len(nodes),
+                )
+
+            except Exception as e:
+                logger.error("Error indexing document: %s", e)
+                return IndexDocumentResponse(
+                    success=False,
+                    message=f"Error indexing document: {str(e)}",
+                    document_id=request.document_id or "unknown",
+                    nodes_added=0,
+                )
+
+        # Add the route to the FastAPI app
+        app.add_api_route(
+            path="/index_document",
+            endpoint=index_document,
+            methods=["POST"],
+            response_model=IndexDocumentResponse,
+            description="Index a document into the vector store for RAG retrieval",
+            responses={
+                200: {
+                    "description": "Document indexed successfully",
+                    "content": {
+                        "application/json": {
+                            "example": {
+                                "success": True,
+                                "message": "Successfully indexed document with 3 nodes",
+                                "document_id": "my_doc_123",
+                                "nodes_added": 3,
+                            }
+                        }
+                    },
+                }
+            },
+        )
+
+        logger.info("Added /index_document route to FastAPI app")

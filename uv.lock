@@ -2949,6 +2949,19 @@ wheels = [
 ]
 
 [[package]]
+name = "llama-index-vector-stores-chroma"
+version = "0.4.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "chromadb" },
+    { name = "llama-index-core" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/f3/75/56aecf1be68e19384c3cddfee84935f7faeff405cafad5584cbf51638e61/llama_index_vector_stores_chroma-0.4.2.tar.gz", hash = "sha256:174633815e0a8838aeb628816e2cf5d1d8c6f8f6847f427e0032d35071ead0c1", size = 6256, upload-time = "2025-06-05T17:06:20.457Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ca/8d/e92d66f6bb648d73fefb898c0075b2dfc55f6886dabbfa5f75a5c76f9980/llama_index_vector_stores_chroma-0.4.2-py3-none-any.whl", hash = "sha256:579272ac24a03bcf66d42a565d1c3803e3a0eeb0f1ec024e09522605472564b7", size = 6046, upload-time = "2025-06-05T17:06:19.673Z" },
+]
+
+[[package]]
 name = "llama-parse"
 version = "0.6.12"
 source = { registry = "https://pypi.org/simple" }
@@ -3881,6 +3894,7 @@ dependencies = [
     { name = "httpx" },
     { name = "jinja2" },
     { name = "jsonpath-ng" },
+    { name = "llama-index-vector-stores-chroma" },
     { name = "mcp" },
     { name = "networkx" },
     { name = "numpy" },
@@ -4030,6 +4044,7 @@ requires-dist = [
     { name = "httpx", specifier = "~=0.27" },
     { name = "jinja2", specifier = "~=3.1" },
     { name = "jsonpath-ng", specifier = "~=1.7" },
+    { name = "llama-index-vector-stores-chroma", specifier = ">=0.4.2" },
     { name = "lxml", marker = "extra == 'ingestion'", specifier = "~=5.4" },
     { name = "matplotlib", marker = "extra == 'profiling'", specifier = "~=3.9" },
     { name = "mcp", specifier = "~=1.10" },
