@@ -35,9 +35,13 @@ class LlamaIndexRAGConfig(FunctionBaseConfig, name="llama_index_rag"):
 
     llm_name: LLMRef
     embedding_name: EmbedderRef
-    data_dir: str
+    # Replace data_dir with milvus configuration
+    milvus_uri: str = "http://localhost:19530"
+    collection_name: str = "test_documents"  # Default collection name
     api_key: str | None = None
     model_name: str
+    # Optional: for similarity search configuration
+    similarity_top_k: int = 2
 
 
 @register_function(config_type=LlamaIndexRAGConfig, framework_wrappers=[LLMFrameworkEnum.LLAMA_INDEX])
@@ -50,6 +54,8 @@ async def llama_index_rag_tool(tool_config: LlamaIndexRAGConfig, builder: Builde
     from llama_index.core.agent import FunctionCallingAgentWorker
     from llama_index.core.node_parser import SimpleFileNodeParser
     from llama_index.core.tools import QueryEngineTool
+    from llama_index.vector_stores.milvus import MilvusVectorStore
+    from llama_index.core.storage.storage_context import StorageContext
 
     if (not tool_config.api_key):
         tool_config.api_key = os.getenv("NVIDIA_API_KEY")
@@ -58,23 +64,75 @@ async def llama_index_rag_tool(tool_config: LlamaIndexRAGConfig, builder: Builde
         raise ValueError(
             "API token must be provided in the configuration or in the environment variable `NVIDIA_API_KEY`")
 
-    logger.info("##### processing data from ingesting files in this folder : %s", tool_config.data_dir)
+    logger.info(
+        "##### Connecting to Milvus at %s, collection: %s",
+        tool_config.milvus_uri,
+        tool_config.collection_name,
+    )
 
     llm = await builder.get_llm(tool_config.llm_name, wrapper_type=LLMFrameworkEnum.LLAMA_INDEX)
     embedder = await builder.get_embedder(tool_config.embedding_name, wrapper_type=LLMFrameworkEnum.LLAMA_INDEX)
 
     Settings.embed_model = embedder
-    md_docs = SimpleDirectoryReader(input_files=[tool_config.data_dir]).load_data()
-    parser = SimpleFileNodeParser()
-    nodes = parser.get_nodes_from_documents(md_docs)
-    index = VectorStoreIndex(nodes)
+    # md_docs = SimpleDirectoryReader(input_files=[tool_config.data_dir]).load_data()
+    # parser = SimpleFileNodeParser()
+    # nodes = parser.get_nodes_from_documents(md_docs)
+    # index = VectorStoreIndex(nodes)
     Settings.llm = llm
-    query_engine = index.as_query_engine(similarity_top_k=2)
+
+    # Get embedding dimensions dynamically
+    try:
+        test_embedding = await embedder.aget_text_embedding("test")
+        embedding_dim = len(test_embedding)
+        logger.info("Detected embedding dimension: %d", embedding_dim)
+    except Exception as e:
+        logger.warning(
+            "Could not detect embedding dimension: %s. Using default 1024", e
+        )
+        embedding_dim = 1024
+
+    # Create Milvus vector store
+    vector_store = MilvusVectorStore(
+        uri=tool_config.milvus_uri,
+        collection_name=tool_config.collection_name,
+        dim=embedding_dim,
+        overwrite=False,  # Don't overwrite existing collection
+        consistency_level="Session",
+    )
+
+    # Create storage context with Milvus
+    storage_context = StorageContext.from_defaults(vector_store=vector_store)
+
+    # Create index from existing vector store (no need to load documents)
+    try:
+        index = VectorStoreIndex.from_vector_store(
+            vector_store=vector_store,
+            storage_context=storage_context,
+        )
+        logger.info(
+            "Successfully connected to existing Milvus collection: %s",
+            tool_config.collection_name,
+        )
+    except Exception as e:
+        logger.error(
+            "Failed to connect to Milvus collection %s: %s",
+            tool_config.collection_name,
+            e,
+        )
+        raise ValueError(
+            f"Could not connect to Milvus collection '{tool_config.collection_name}'. "
+            f"Make sure the collection exists and contains data. Error: {e}"
+        )
+
+    query_engine = index.as_query_engine(similarity_top_k=tool_config.similarity_top_k)
 
     model_name = tool_config.model_name
     if not model_name.startswith('nvdev'):
         tool = QueryEngineTool.from_defaults(
-            query_engine, name="rag", description="ingest data from README about this workflow with llama_index_rag")
+            query_engine,
+            name="rag",
+            description="Query data from Milvus vector store using RAG with llama_index",
+        )
 
         agent_worker = FunctionCallingAgentWorker.from_tools(
             [tool],
@@ -85,18 +143,49 @@ async def llama_index_rag_tool(tool_config: LlamaIndexRAGConfig, builder: Builde
 
     async def _arun(inputs: str) -> str:
         """
-        rag using llama-index ingesting README markdown file
+        RAG using llama-index querying Milvus vector store
         Args:
-            query : user query
+            inputs: user query
         """
-        if not model_name.startswith('nvdev'):
-            agent_response = (await agent.achat(inputs))
-            logger.info("response from llama-index Agent : \n %s %s", Fore.MAGENTA, agent_response.response)
-            output = agent_response.response
-        else:
-            logger.info("%s %s %s %s", Fore.MAGENTA, type(query_engine), query_engine, inputs)
-            output = query_engine.query(inputs).response
+        try:
+            if not model_name.startswith("nvdev"):
+                agent_response = await agent.achat(inputs)
+                logger.info(
+                    "Response from llama-index Agent querying Milvus: \n %s %s",
+                    Fore.MAGENTA,
+                    agent_response.response,
+                )
+                output = agent_response.response
+            else:
+                logger.info(
+                    "%s Querying Milvus directly: %s %s %s",
+                    Fore.MAGENTA,
+                    type(query_engine),
+                    query_engine,
+                    inputs,
+                )
+                response = query_engine.query(inputs)
+                output = response.response
 
-        return output
+                # Log source information if available
+                if hasattr(response, "source_nodes") and response.source_nodes:
+                    logger.info(
+                        "Sources found: %d documents", len(response.source_nodes)
+                    )
+                    for i, node in enumerate(
+                        response.source_nodes[:3]
+                    ):  # Log first 3 sources
+                        source = node.metadata.get("source", "Unknown")
+                        score = getattr(node, "score", "N/A")
+                        logger.info("Source %d: %s (score: %s)", i + 1, source, score)
 
-    yield FunctionInfo.from_fn(_arun, description="extract relevant data via llama-index's RAG per user input query")
+            return output
+
+        except Exception as e:
+            logger.error("Error during RAG query: %s", e)
+            return f"Error querying the knowledge base: {str(e)}"
+
+    yield FunctionInfo.from_fn(
+        _arun,
+        description="Query relevant data from Milvus vector store via llama-index RAG",
+    )

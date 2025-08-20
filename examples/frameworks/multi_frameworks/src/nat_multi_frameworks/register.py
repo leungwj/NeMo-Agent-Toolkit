@@ -33,7 +33,7 @@ class MultiFrameworksWorkflowConfig(FunctionBaseConfig, name="multi_frameworks")
     # Add your custom configuration parameters here
     llm: LLMRef = "nim_llm"
     data_dir: str = "/home/coder/dev/ai-query-engine/examples/frameworks/multi_frameworks/data/"
-    research_tool: FunctionRef
+    # research_tool: FunctionRef
     rag_tool: FunctionRef
     chitchat_agent: FunctionRef
 
@@ -57,7 +57,7 @@ async def multi_frameworks_workflow(config: MultiFrameworksWorkflowConfig, build
     logger.info("workflow config = %s", config)
 
     llm = await builder.get_llm(llm_name=config.llm, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
-    research_tool = builder.get_tool(fn_name=config.research_tool, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
+    # research_tool = builder.get_tool(fn_name=config.research_tool, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
     rag_tool = builder.get_tool(fn_name=config.rag_tool, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
     chitchat_agent = builder.get_tool(fn_name=config.chitchat_agent, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
 
@@ -71,6 +71,14 @@ async def multi_frameworks_workflow(config: MultiFrameworksWorkflowConfig, build
     'General' - answering small greeting or chitchat type of questions or everything else that does not fall into any of the above topics.
     User query: {input}
     Classifcation topic:"""  # noqa: E501
+
+    router_prompt = """
+    Given the user input below, classify it as either being about 'Research', 'Retrieve' or 'General' topic.
+    Just use one of these words as your response. \
+    'Retrieve' - any question related to the topic of HTX or xDigital
+    'General' - answering small greeting or chitchat type of questions or everything else that does not fall into any of the above topics.
+    User query: {input}
+    Classifcation topic:"""
 
     routing_chain = ({
         "input": RunnablePassthrough()
@@ -136,9 +144,9 @@ async def multi_frameworks_workflow(config: MultiFrameworksWorkflowConfig, build
         elif "general" in worker_choice.lower():
             output = (await chitchat_agent.ainvoke(query))
             logger.info("**using general chitchat chain >>> output:  \n %s, %s", output, Fore.RESET)
-        elif 'research' in worker_choice.lower():
-            inputs = {"inputs": query}
-            output = (await research_tool.ainvoke(inputs))
+        # elif 'research' in worker_choice.lower():
+        #     inputs = {"inputs": query}
+        #     output = (await research_tool.ainvoke(inputs))
         else:
             output = ("Apologies, I am not sure what to say, I can answer general questions retrieve info this "
                       "multi_frameworks workflow and answer light coding questions, but nothing more.")
