@@ -73,9 +73,9 @@ async def multi_frameworks_workflow(config: MultiFrameworksWorkflowConfig, build
     Classifcation topic:"""  # noqa: E501
 
     router_prompt = """
-    Given the user input below, classify it as either being about 'Research', 'Retrieve' or 'General' topic.
+    Given the user input below, classify it as either being about 'Retrieve' or 'General' topic.
     Just use one of these words as your response. \
-    'Retrieve' - any question related to the topic of HTX or xDigital
+    'Retrieve' - Any queries related to meeting notes/transcripts
     'General' - answering small greeting or chitchat type of questions or everything else that does not fall into any of the above topics.
     User query: {input}
     Classifcation topic:"""

@@ -37,7 +37,7 @@ class LlamaIndexRAGConfig(FunctionBaseConfig, name="llama_index_rag"):
     embedding_name: EmbedderRef
     # Replace data_dir with milvus configuration
     milvus_uri: str = "http://localhost:19530"
-    collection_name: str = "test_documents"  # Default collection name
+    collection_name: str = "transcripts"  # Default collection name
     api_key: str | None = None
     model_name: str
     # Optional: for similarity search configuration

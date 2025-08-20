@@ -68,6 +68,10 @@ from nat.front_ends.fastapi.step_adaptor import StepAdaptor
 from nat.object_store.models import ObjectStoreItem
 from nat.runtime.session import SessionManager
 
+from nat.front_ends.fastapi.turn_aware_transcript_splitter import (
+    TurnAwareTranscriptSplitter,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -1106,6 +1110,9 @@ class FastApiFrontEndPluginWorker(FastApiFrontEndPluginWorkerBase):
             collection_name: str = Field(
                 default="documents", description="Collection name for the vector store"
             )
+            content_type: str = Field(
+                default="transcript", description="Content Type Definition for the data"
+            )
 
         class IndexDocumentResponse(BaseModel):
             success: bool
@@ -1167,20 +1174,37 @@ class FastApiFrontEndPluginWorker(FastApiFrontEndPluginWorkerBase):
                 # Create document
                 doc_id = request.document_id or f"doc_{hash(request.content)}"
 
-                # Ensure metadata includes source information
-                document_metadata = {
-                    "source": f"api_upload_{doc_id}",
-                    "document_type": "api_indexed",
-                    **request.metadata,
-                }
+                # # Ensure metadata includes source information
+                # document_metadata = {
+                #     "source": f"api_upload_{doc_id}",
+                #     "document_type": "api_indexed",
+                #     **request.metadata,
+                # }
 
-                document = Document(
-                    text=request.content, doc_id=doc_id, metadata=document_metadata
-                )
+                # document = Document(
+                #     text=request.content, doc_id=doc_id, metadata=document_metadata
+                # )
 
-                # Parse into nodes
-                parser = SimpleFileNodeParser()
-                nodes = parser.get_nodes_from_documents([document])
+                # # Parse into nodes
+                # parser = SimpleFileNodeParser()
+                # nodes = parser.get_nodes_from_documents([document])
+
+                # In your document indexing route:
+                if request.content_type == "transcript":
+                    splitter = TurnAwareTranscriptSplitter(
+                        target_tokens=1024,
+                        overlap_turns=1,
+                        metadata_base={"doc_id": doc_id},
+                    )
+                    nodes = splitter.split_text(request.content, source=doc_id)
+                    # nodes are already TextNode objects - no conversion needed!
+                else:
+                    # Use existing SimpleFileNodeParser for other content
+                    parser = SimpleFileNodeParser()
+                    document = Document(
+                        text=request.content, metadata={"doc_id": doc_id}
+                    )
+                    nodes = parser.get_nodes_from_documents([document])
 
                 # Ensure each node has proper metadata
                 for i, node in enumerate(nodes):
@@ -1188,7 +1212,7 @@ class FastApiFrontEndPluginWorker(FastApiFrontEndPluginWorkerBase):
                         {
                             "chunk_id": f"{doc_id}_chunk_{i}",
                             "total_chunks": len(nodes),
-                            **document_metadata,
+                            # **document_metadata,
                         }
                     )
 
