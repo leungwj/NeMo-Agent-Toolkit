@@ -25,6 +25,7 @@ from nat.data_models.function import FunctionBaseConfig
 from . import haystack_agent  # noqa: F401, pylint: disable=unused-import
 from . import langchain_research_tool  # noqa: F401, pylint: disable=unused-import
 from . import llama_index_rag_tool  # noqa: F401, pylint: disable=unused-import
+from . import langchain_general_agent  # noqa: F401, pylint: disable=unused-import
 
 logger = logging.getLogger(__name__)
 
@@ -63,14 +64,14 @@ async def multi_frameworks_workflow(config: MultiFrameworksWorkflowConfig, build
 
     chat_hist = ChatMessageHistory()
 
-    router_prompt = """
-    Given the user input below, classify it as either being about 'Research', 'Retrieve' or 'General' topic.
-    Just use one of these words as your response. \
-    'Research' - any question related to a need to do research on arxiv papers and get a summary. such as "find research papers about RAG for me" or " what is Compound AI?"...etc
-    'Retrieve' - any question related to the topic of NAT or its workflows, especially concerning the particular workflow called multi_frameworks which show case using multiple frameworks such as langchain, llama-index ..etc
-    'General' - answering small greeting or chitchat type of questions or everything else that does not fall into any of the above topics.
-    User query: {input}
-    Classifcation topic:"""  # noqa: E501
+    # router_prompt = """
+    # Given the user input below, classify it as either being about 'Research', 'Retrieve' or 'General' topic.
+    # Just use one of these words as your response. \
+    # 'Research' - any question related to a need to do research on arxiv papers and get a summary. such as "find research papers about RAG for me" or " what is Compound AI?"...etc
+    # 'Retrieve' - any question related to the topic of NAT or its workflows, especially concerning the particular workflow called multi_frameworks which show case using multiple frameworks such as langchain, llama-index ..etc
+    # 'General' - answering small greeting or chitchat type of questions or everything else that does not fall into any of the above topics.
+    # User query: {input}
+    # Classifcation topic:"""  # noqa: E501
 
     router_prompt = """
     Given the user input below, classify it as either being about 'Retrieve' or 'General' topic.
@@ -124,10 +125,10 @@ async def multi_frameworks_workflow(config: MultiFrameworksWorkflowConfig, build
         if 'final_output' in status:
             route_to = "end"
         elif 'chosen_worker_agent' not in status:
-            logger.info(" ############# router to --> supervisor %s", Fore.RESET)
+            logger.info(" router to supervisor %s", Fore.RESET)
             route_to = "supevisor"
         elif 'chosen_worker_agent' in status:
-            logger.info(" ############# router to --> workers %s", Fore.RESET)
+            logger.info(" router to workers %s", Fore.RESET)
             route_to = "workers"
         else:
             route_to = "end"
@@ -140,17 +141,17 @@ async def multi_frameworks_workflow(config: MultiFrameworksWorkflowConfig, build
         if "retrieve" in worker_choice.lower():
             out = (await rag_tool.ainvoke(query))
             output = out
-            logger.info("**using rag_tool via llama_index_rag_agent >>> output:  \n %s, %s", output, Fore.RESET)
+            logger.info("**using rag_tool via llama_index_rag_agent output:  \n %s, %s", output, Fore.RESET)
         elif "general" in worker_choice.lower():
             output = (await chitchat_agent.ainvoke(query))
-            logger.info("**using general chitchat chain >>> output:  \n %s, %s", output, Fore.RESET)
+            logger.info("**using general chitchat chain output:  \n %s, %s", output, Fore.RESET)
         # elif 'research' in worker_choice.lower():
         #     inputs = {"inputs": query}
         #     output = (await research_tool.ainvoke(inputs))
         else:
             output = ("Apologies, I am not sure what to say, I can answer general questions retrieve info this "
                       "multi_frameworks workflow and answer light coding questions, but nothing more.")
-            logger.info("**!!! not suppose to happen, try to debug this >>> output:  \n %s, %s", output, Fore.RESET)
+            logger.info("**not suppose to happen, try to debug this output:  \n %s, %s", output, Fore.RESET)
 
         return {'input': query, "chosen_worker_agent": worker_choice, "chat_history": chat_hist, "final_output": output}
 

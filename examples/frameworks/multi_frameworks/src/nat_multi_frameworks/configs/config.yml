@@ -29,9 +29,12 @@ functions:
   #   _type: langchain_researcher_tool
   #   web_tool: internet_search
   #   llm_name: nim_llm
-  haystack_chitchat_agent:
-    _type: haystack_chitchat_agent
-    llm_name: meta/llama-3.1-405b-instruct
+  # haystack_chitchat_agent:
+  #   _type: haystack_chitchat_agent
+  #   llm_name: meta/llama-3.1-405b-instruct
+  langchain_general_agent:
+    _type: langchain_general_agent
+    llm_name: nim_llm
 
 llms:
   nim_llm:
@@ -51,4 +54,5 @@ workflow:
   data_dir : ./examples/frameworks/multi_frameworks/README.md
   rag_tool: llama_index_rag
   # research_tool: langchain_researcher_tool
-  chitchat_agent: haystack_chitchat_agent
+  # chitchat_agent: haystack_chitchat_agent
+  chitchat_agent: langchain_general_agent
