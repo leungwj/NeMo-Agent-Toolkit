@@ -27,8 +27,8 @@ functions:
     _type: extract_por_tool
     llm: extract_llm
     root_path: "./examples/HITL/por_to_jiratickets/data/"
-  show_jira_tickets:
-    _type: show_jira_tickets
+  show_jira_tickets_tool:
+    _type: show_jira_tickets_tool
     root_path: "./examples/HITL/por_to_jiratickets/data/"
   create_jira_tickets_tool:
     _type: create_jira_tickets_tool
@@ -73,7 +73,7 @@ workflow:
   llm_name: agent_llm
   tool_names:
     - extract_por_tool
-    - show_jira_tickets
+    - show_jira_tickets_tool
     - create_jira_tickets_tool
     - get_jira_tickets_tool
   verbose: true

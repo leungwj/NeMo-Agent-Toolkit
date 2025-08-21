@@ -23,11 +23,11 @@ functions:
   llama_index_rag:
     _type: llama_index_rag
     llm_name: nim_llm
-    base_url: "http://localhost:8001/v1"
+    # base_url: "http://localhost:8005/v1"
     # model_name: nvidia/llama-3.3-nemotron-super-49b-v1
-    model_name : meta/llama-3.1-70b-instruct
     # model_name : meta/llama-3.3-70b-instruct
-    # model_name : meta/llama-3.1-405b-instruct
+    # model_name : meta/llama-3.3-70b-instruct
+    model_name : meta/llama-3.1-405b-instruct
     # model_name : meta/llama-4-scout-17b-16e-instruct
     # model_name : nvidia/llama-3.3-nemotron-super-49b-v1.5
     embedding_name : nim_embedder
@@ -42,17 +42,48 @@ functions:
     _type: langchain_general_agent
     llm_name: nim_llm
 
+  jira_agent:
+    _type: jira_agent
+    llm_name: nim_llm
+    extract_por_tool: extract_por_tool
+    show_jira_tickets_tool: show_jira_tickets_tool
+    create_jira_tickets_tool: create_jira_tickets_tool
+    get_jira_tickets_tool: get_jira_tickets_tool
+    # hitl_approval_tool: hitl_approval_tool  # Optional HITL component
+  
+  # Import the JIRA tools from the HITL example
+  extract_por_tool:
+    _type: extract_por_tool
+    llm: nim_llm
+    root_path: "./examples/frameworks/multi_frameworks/data/"
+  show_jira_tickets_tool:
+    _type: show_jira_tickets_tool
+    root_path: "./examples/frameworks/multi_frameworks/data/"
+  create_jira_tickets_tool:
+    _type: create_jira_tickets_tool
+    root_path: "./examples/frameworks/multi_frameworks/data/"
+    timeout: 30.0
+    connect: 30.0
+    jira_domain: "https://2201316.atlassian.net"
+    jira_project_key: "CCS"
+  get_jira_tickets_tool:
+    _type: get_jira_tickets_tool
+    root_path: "./examples/frameworks/multi_frameworks/data/"
+    jira_domain: "https://2201316.atlassian.net"
+    jira_project_key: "CCS"
+
 llms:
   nim_llm:
     _type: nim
-    base_url: "http://localhost:8001/v1"
+    # base_url: "http://localhost:8005/v1"
     # model_name: nvidia/llama-3.3-nemotron-super-49b-v1
     # model_name : meta/llama-3.3-70b-instruct
-    model_name : meta/llama-3.1-70b-instruct
-    # model_name: meta/llama-3.1-405b-instruct
+    # model_name : meta/llama-3.3-70b-instruct
+    model_name: meta/llama-3.1-405b-instruct
     # model_name : meta/llama-4-scout-17b-16e-instruct
     # model_name : nvidia/llama-3.3-nemotron-super-49b-v1.5
     temperature: 0.0
+    max_tokens: 4096
 
 embedders:
   nim_embedder:
@@ -63,11 +94,12 @@ embedders:
 workflow:
   _type: multi_frameworks
   llm : nim_llm
-  data_dir : ./examples/frameworks/multi_frameworks/README.md
+  # data_dir : ./examples/frameworks/multi_frameworks/README.md
   rag_tool: llama_index_rag
   # research_tool: langchain_researcher_tool
   # chitchat_agent: haystack_chitchat_agent
   chitchat_agent: langchain_general_agent
+  jira_agent: jira_agent  # Add your new JIRA agent
 
 # Valid models for use in the workflow
 # Only these models are allowed:

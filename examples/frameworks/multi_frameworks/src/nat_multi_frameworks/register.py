@@ -26,6 +26,9 @@ from . import haystack_agent  # noqa: F401, pylint: disable=unused-import
 from . import langchain_research_tool  # noqa: F401, pylint: disable=unused-import
 from . import llama_index_rag_tool  # noqa: F401, pylint: disable=unused-import
 from . import langchain_general_agent  # noqa: F401, pylint: disable=unused-import
+from . import extract_por_tool
+from . import jira_tickets_tool
+from . import jira_agent
 
 logger = logging.getLogger(__name__)
 
@@ -33,10 +36,11 @@ logger = logging.getLogger(__name__)
 class MultiFrameworksWorkflowConfig(FunctionBaseConfig, name="multi_frameworks"):
     # Add your custom configuration parameters here
     llm: LLMRef = "nim_llm"
-    data_dir: str = "/home/coder/dev/ai-query-engine/examples/frameworks/multi_frameworks/data/"
+    # data_dir: str = "/home/coder/dev/ai-query-engine/examples/frameworks/multi_frameworks/data/"
     # research_tool: FunctionRef
     rag_tool: FunctionRef
     chitchat_agent: FunctionRef
+    jira_agent: FunctionRef
 
 
 @register_function(config_type=MultiFrameworksWorkflowConfig, framework_wrappers=[LLMFrameworkEnum.LANGCHAIN])
@@ -61,6 +65,9 @@ async def multi_frameworks_workflow(config: MultiFrameworksWorkflowConfig, build
     # research_tool = builder.get_tool(fn_name=config.research_tool, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
     rag_tool = builder.get_tool(fn_name=config.rag_tool, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
     chitchat_agent = builder.get_tool(fn_name=config.chitchat_agent, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
+    jira_agent_tool = builder.get_tool(
+        fn_name=config.jira_agent, wrapper_type=LLMFrameworkEnum.LANGCHAIN
+    )  # Add this line
 
     chat_hist = ChatMessageHistory()
 
@@ -74,9 +81,10 @@ async def multi_frameworks_workflow(config: MultiFrameworksWorkflowConfig, build
     # Classifcation topic:"""  # noqa: E501
 
     router_prompt = """
-    Given the user input below, classify it as either being about 'Retrieve' or 'General' topic.
+    Given the user input below, classify it as either being about 'Retrieve', 'Jira', or 'General' topic.
     Just use one of these words as your response. \
     'Retrieve' - Any queries related to meeting notes/transcripts
+    'Jira' - Any questions about JIRA tickets, project management, POR extraction, creating tickets, or viewing project status
     'General' - answering small greeting or chitchat type of questions or everything else that does not fall into any of the above topics.
     User query: {input}
     Classifcation topic:"""
@@ -142,6 +150,9 @@ async def multi_frameworks_workflow(config: MultiFrameworksWorkflowConfig, build
             out = (await rag_tool.ainvoke(query))
             output = out
             logger.info("**using rag_tool via llama_index_rag_agent output:  \n %s, %s", output, Fore.RESET)
+        elif "jira" in worker_choice.lower():  # Add this condition
+            output = await jira_agent_tool.ainvoke(query)
+            logger.info("**using jira_agent output:  \n %s, %s", output, Fore.RESET)
         elif "general" in worker_choice.lower():
             output = (await chitchat_agent.ainvoke(query))
             logger.info("**using general chitchat chain output:  \n %s, %s", output, Fore.RESET)
@@ -149,8 +160,10 @@ async def multi_frameworks_workflow(config: MultiFrameworksWorkflowConfig, build
         #     inputs = {"inputs": query}
         #     output = (await research_tool.ainvoke(inputs))
         else:
-            output = ("Apologies, I am not sure what to say, I can answer general questions retrieve info this "
-                      "multi_frameworks workflow and answer light coding questions, but nothing more.")
+            output = (
+                "Apologies, I am not sure what to say, I can answer general questions, retrieve info from this "
+                "multi_frameworks workflow, handle JIRA operations, and answer light coding questions, but nothing more."
+            )
             logger.info("**not suppose to happen, try to debug this output:  \n %s, %s", output, Fore.RESET)
 
         return {'input': query, "chosen_worker_agent": worker_choice, "chat_history": chat_hist, "final_output": output}

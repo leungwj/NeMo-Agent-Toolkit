@@ -86,7 +86,7 @@ PROMPT_EXTRACT_EPICS = """
     ]
     }}
 
-    Return only valid JSON.
+    Only return a valid JSON and nothing more.
     Now process this PRD chunk:
     \"\"\"{por_content}\"\"\"
     """  # noqa: E501
@@ -124,7 +124,7 @@ class ExtractPORToolConfig(FunctionBaseConfig, name="extract_por_tool"):
 
 
 @register_function(config_type=ExtractPORToolConfig, framework_wrappers=[LLMFrameworkEnum.LANGCHAIN])
-async def extract_from_por_tool(config: ExtractPORToolConfig, builder: Builder):
+async def extract_por_tool(config: ExtractPORToolConfig, builder: Builder):
     """
     Extract epics and issues from the given PRO/PRD text using the LLM chain
     and store the result in session state.
@@ -145,15 +145,16 @@ async def extract_from_por_tool(config: ExtractPORToolConfig, builder: Builder):
 
         input_file = os.path.join(config.root_path, input_text)
         if os.path.isfile(input_file):
-            logger.debug("Detected file: %s", input_file)
+            logger.info("Detected file: %s", input_file)
 
             with open(input_file, 'r', encoding='utf-8') as file:
                 por_content = "\n".join(line.strip() for line in file if line.strip())
         else:
             por_content = input_text
 
-        response = await chain.ainvoke({"por_content": por_content})
+        response = await chain.ainvoke({"por_content": por_content}, config={"max_tokens": 4096})
         response = correct_json_format(response)
+        logger.info("JSON Response: %s", response)
         # Attempt to parse the response as JSON. If it fails, just store the raw string.
         try:
             data = json.loads(response)
@@ -179,12 +180,12 @@ async def extract_from_por_tool(config: ExtractPORToolConfig, builder: Builder):
             "filename then pass that as input or if the user provides raw POR text then pass that as input"))
 
 
-class ShowTicketsToolConfig(FunctionBaseConfig, name="show_jira_tickets_tool"):
+class ShowJiraToolConfig(FunctionBaseConfig, name="show_jira_tickets_tool"):
     root_path: str
 
 
-@register_function(config_type=ShowTicketsToolConfig)
-async def show_tickets_tool(config: ShowTicketsToolConfig, builder: Builder):
+@register_function(config_type=ShowJiraToolConfig)
+async def show_jira_tickets_tool(config: ShowJiraToolConfig, builder: Builder):
     """
     Return a string listing the epics from the last extraction.
     """
