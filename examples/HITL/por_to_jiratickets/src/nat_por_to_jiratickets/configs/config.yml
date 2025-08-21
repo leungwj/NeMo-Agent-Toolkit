@@ -37,15 +37,15 @@ functions:
     connect: 30.0
     jira_domain: "https://taijingshen.atlassian.net" #added
     jira_project_key: "CRM" #added
-    hitl_approval_fn: "hitl_approval_tool"  # Commented out to remove HITL
+    # hitl_approval_fn: "hitl_approval_tool"  # Commented out to remove HITL
   get_jira_tickets_tool:
     _type: get_jira_tickets_tool
     root_path: "./examples/HITL/por_to_jiratickets/data/"
     jira_domain: "https://taijingshen.atlassian.net" #added
     jira_project_key: "CRM" #added
-  hitl_approval_tool:  # Commented out to remove HITL
-    _type: hitl_approval_tool
-    prompt: "I would like to create Jira tickets for the extracted data."
+  # hitl_approval_tool:  # Commented out to remove HITL
+  #   _type: hitl_approval_tool
+  #   prompt: "I would like to create Jira tickets for the extracted data."
 
 llms:
   extract_llm:

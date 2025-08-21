@@ -18,6 +18,7 @@ import json
 import logging
 import os
 import re
+from typing import Optional
 
 import httpx
 import requests
@@ -285,28 +286,32 @@ class CreateJiraToolConfig(FunctionBaseConfig, name="create_jira_tickets_tool"):
     jira_project_key: str
     timeout: float
     connect: float
-    hitl_approval_fn: FunctionRef
+    hitl_approval_fn: Optional[FunctionRef] = None
 
 
 @register_function(config_type=CreateJiraToolConfig)
 async def create_jira_tickets_tool(config: CreateJiraToolConfig, builder: Builder):
 
-    hitl_approval_fn = builder.get_function(config.hitl_approval_fn)
+    # Only get HITL approval function if it's configured
+    hitl_approval_fn = None
+    if config.hitl_approval_fn is not None:
+        hitl_approval_fn = builder.get_function(config.hitl_approval_fn)
 
     async def _arun(input_text: str) -> str:
 
-        # Get user confirmation first
-        try:
-            selected_option = await hitl_approval_fn.acall_invoke()
+        # Get user confirmation first (only if HITL is configured)
+        if hitl_approval_fn is not None:
+            try:
+                selected_option = await hitl_approval_fn.acall_invoke()
 
-            if not selected_option:
-                return "Did not receive user confirmation to upload to Jira. You can exit with a final answer."
+                if not selected_option:
+                    return "Did not receive user confirmation to upload to Jira. You can exit with a final answer."
 
-        except Exception as e:
-            logger.error("An error occurred when getting interaction content: %s", e)
-            logger.info("Defaulting to not uploading to Jira")
-            return ("Did not upload to Jira because human confirmation was not received. "
-                    "You can exit with a final answer")
+            except Exception as e:
+                logger.error("An error occurred when getting interaction content: %s", e)
+                logger.info("Defaulting to not uploading to Jira")
+                return ("Did not upload to Jira because human confirmation was not received. "
+                        "You can exit with a final answer")
 
         logger.debug("Creating %s in Jira", input_text)
         # input_text = process_input_text(input_text)
