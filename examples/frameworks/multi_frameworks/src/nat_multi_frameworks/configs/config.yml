@@ -23,7 +23,10 @@ functions:
   llama_index_rag:
     _type: llama_index_rag
     llm_name: nim_llm
-    model_name : meta/llama-3.3-70b-instruct
+    base_url: "http://localhost:8001/v1"
+    # model_name: nvidia/llama-3.3-nemotron-super-49b-v1
+    model_name : meta/llama-3.1-70b-instruct
+    # model_name : meta/llama-3.3-70b-instruct
     # model_name : meta/llama-3.1-405b-instruct
     # model_name : meta/llama-4-scout-17b-16e-instruct
     # model_name : nvidia/llama-3.3-nemotron-super-49b-v1.5
@@ -42,7 +45,10 @@ functions:
 llms:
   nim_llm:
     _type: nim
-    model_name : meta/llama-3.3-70b-instruct
+    base_url: "http://localhost:8001/v1"
+    # model_name: nvidia/llama-3.3-nemotron-super-49b-v1
+    # model_name : meta/llama-3.3-70b-instruct
+    model_name : meta/llama-3.1-70b-instruct
     # model_name: meta/llama-3.1-405b-instruct
     # model_name : meta/llama-4-scout-17b-16e-instruct
     # model_name : nvidia/llama-3.3-nemotron-super-49b-v1.5
@@ -69,6 +75,5 @@ workflow:
 # - meta/llama-3.1-405b-instruct
 
 # Invalid models (commented out for clarity)
-# model_name: nvidia/nemotron
 # model_name: meta/llama-4-scout-17b-16e-instruct
 # model_name: nvidia/llama-3.3-nemotron-super-49b-v1.5
