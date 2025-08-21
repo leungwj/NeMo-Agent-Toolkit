@@ -58,12 +58,15 @@ class JiraTool:
         self.url = f"{self.domain}/rest/api/2/issue"
 
     async def get_priority_name(self, priority: str):
-        if priority == 'P0':
-            return priority + " - Must have"
-        if priority == 'P1':
-            return priority + " - Should have"
-        if priority == 'P2':
-            return priority + " - Nice to have"
+        # Map to standard Jira priority names
+        priority_mapping = {
+            'P0': 'Highest',
+            'P1': 'High', 
+            'P2': 'Medium',
+            'P3': 'Low',
+            'P4': 'Lowest'
+        }
+        return priority_mapping.get(priority, 'Medium')  # Default to Medium if not found
 
     async def create_epic(self, client: httpx.AsyncClient, ticket_data: dict) -> str:
         """
@@ -81,8 +84,7 @@ class JiraTool:
                 "description": epic_description,
                 "issuetype": {
                     "name": "Epic"
-                },
-                "customfield_10006": title
+                }
             }
         }
         try:
@@ -112,25 +114,30 @@ class JiraTool:
         """
         title = ticket_data.get("title", "Untitled Story")
         description = ticket_data.get("description", "")
-        priority = ticket_data.get("priority", "")
+        priority = ticket_data.get("priority", "P2")  # Default to P2 if not specified
         story_points = ticket_data.get("storypoints", "")
         logger.debug("Creating Tasks in Jira: %s for priority %s with story point %s", title, priority, story_points)
         priority_name = await self.get_priority_name(priority)
-        payload = {
-            "fields": {
-                "project": {
-                    "key": self.project_key
-                },
-                "summary": title,
-                "description": description,
-                "issuetype": {
-                    "name": "Task"
-                },
-                "priority": {
-                    "name": priority_name
-                }
+        
+        # Build the payload fields
+        payload_fields = {
+            "project": {
+                "key": self.project_key
+            },
+            "summary": title,
+            "description": description,
+            "issuetype": {
+                "name": "Task"
             }
         }
+        
+        # Only add priority if we have a valid one
+        if priority_name:
+            payload_fields["priority"] = {
+                "name": priority_name
+            }
+        
+        payload = {"fields": payload_fields}
         try:
             r = await client.post(
                 self.url,
@@ -157,27 +164,37 @@ class JiraTool:
         """
         title = ticket_data.get("title", "Untitled Story")
         description = ticket_data.get("description", "")
-        priority = ticket_data.get("priority", "")
+        priority = ticket_data.get("priority", "P2")  # Default to P2 if not specified
         story_points = ticket_data.get("storypoints", "")
-        logger.debug("Creating Tasks in Jira: %s for priority %s with story point %s", title, priority, story_points)
+        logger.debug("Creating Bug in Jira: %s for priority %s with story point %s", title, priority, story_points)
         priority_name = await self.get_priority_name(priority)
-        payload = {
-            "fields": {
-                "project": {
-                    "key": self.project_key
-                },
-                "summary": title,
-                "description": description,
-                "issuetype": {
-                    "name": "Bug"
-                },
-                "priority": {
-                    "name": priority_name
-                },
-                "customfield_10002":
-                    int(story_points)  # Update with the desired story points
+        
+        # Build the payload fields
+        payload_fields = {
+            "project": {
+                "key": self.project_key
+            },
+            "summary": title,
+            "description": description,
+            "issuetype": {
+                "name": "Bug"
             }
         }
+        
+        # Only add priority if we have a valid one
+        if priority_name:
+            payload_fields["priority"] = {
+                "name": priority_name
+            }
+        
+        # Only add story points if provided and valid
+        if story_points and str(story_points).isdigit():
+            try:
+                payload_fields["customfield_10002"] = int(story_points)
+            except (ValueError, TypeError):
+                logger.warning("Invalid story points value: %s", story_points)
+        
+        payload = {"fields": payload_fields}
         try:
             r = await client.post(
                 self.url,
@@ -204,27 +221,37 @@ class JiraTool:
         """
         title = ticket_data.get("title", "Untitled Story")
         description = ticket_data.get("description", "")
-        priority = ticket_data.get("priority", "")
+        priority = ticket_data.get("priority", "P2")  # Default to P2 if not specified
         story_points = ticket_data.get("storypoints", "")
-        logger.debug("Creating Tasks in Jira: %s for priority %s with story point %s", title, priority, story_points)
+        logger.debug("Creating Feature in Jira: %s for priority %s with story point %s", title, priority, story_points)
         priority_name = await self.get_priority_name(priority)
-        payload = {
-            "fields": {
-                "project": {
-                    "key": self.project_key
-                },
-                "summary": title,
-                "description": description,
-                "issuetype": {
-                    "name": "New Feature"
-                },
-                "priority": {
-                    "name": priority_name
-                },
-                "customfield_10002":
-                    int(story_points)  # Update with the desired story points
+        
+        # Build the payload fields
+        payload_fields = {
+            "project": {
+                "key": self.project_key
+            },
+            "summary": title,
+            "description": description,
+            "issuetype": {
+                "name": "New Feature"
             }
         }
+        
+        # Only add priority if we have a valid one
+        if priority_name:
+            payload_fields["priority"] = {
+                "name": priority_name
+            }
+        
+        # Only add story points if provided and valid
+        if story_points and str(story_points).isdigit():
+            try:
+                payload_fields["customfield_10002"] = int(story_points)
+            except (ValueError, TypeError):
+                logger.warning("Invalid story points value: %s", story_points)
+        
+        payload = {"fields": payload_fields}
         try:
             r = await client.post(
                 self.url,
@@ -307,7 +334,14 @@ async def create_jira_tickets_tool(config: CreateJiraToolConfig, builder: Builde
                 results = await asyncio.gather(*tickets)
 
         for _, result in enumerate(results, start=1):
-            lines.append(f"- **{result[0]}**: {config.jira_domain + '/browse/' + str(result[0])}")
+            # Handle both success (tuple) and error (dict) cases
+            if isinstance(result, dict) and "error" in result:
+                lines.append(f"- **Error**: {result.get('error', 'Unknown error')} - {result.get('details', result.get('message', 'No details'))}")
+            elif isinstance(result, tuple) and len(result) >= 2:
+                ticket_key = result[0]
+                lines.append(f"- **{ticket_key}**: {config.jira_domain + '/browse/' + str(ticket_key)}")
+            else:
+                lines.append(f"- **Unexpected result format**: {str(result)}")
 
         output_file = config.root_path + str(input_text) + "_data.json"
         with open(output_file, "w", encoding='utf-8') as json_file:

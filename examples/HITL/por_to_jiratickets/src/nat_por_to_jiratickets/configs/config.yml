@@ -33,8 +33,8 @@ functions:
   create_jira_tickets_tool:
     _type: create_jira_tickets_tool
     root_path: "./examples/HITL/por_to_jiratickets/data/"
-    timeout: 20.0
-    connect: 10.0
+    timeout: 30.0
+    connect: 30.0
     jira_domain: "https://taijingshen.atlassian.net" #added
     jira_project_key: "CRM" #added
     hitl_approval_fn: "hitl_approval_tool"  # Commented out to remove HITL
@@ -52,7 +52,7 @@ llms:
     _type: nim
     # model_name: meta/llama-3.3-70b-instruct
     base_url: "http://localhost:8001/v1"
-    model_name : meta/llama-3.1-70b-instruct
+    model_name : meta/llama-3.3-70b-instruct
     # model_name: "deepseek-ai/deepseek-r1"
     temperature: 0.0
     seed: 33
@@ -63,7 +63,7 @@ llms:
     # model_name: mistralai/mixtral-8x22b-instruct-v0.1
     # model_name: meta/llama-3.3-70b-instruct
     base_url: "http://localhost:8001/v1"
-    model_name : meta/llama-3.1-70b-instruct
+    model_name : meta/llama-3.3-70b-instruct
     temperature: 0.0
     seed: 33
     max_tokens: 2000
