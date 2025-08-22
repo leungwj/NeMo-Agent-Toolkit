@@ -15,6 +15,7 @@
 
 import logging
 import os
+import re
 
 from pydantic import ConfigDict
 
@@ -127,7 +128,12 @@ async def llama_index_rag_tool(tool_config: LlamaIndexRAGConfig, builder: Builde
     query_engine = index.as_query_engine(similarity_top_k=tool_config.similarity_top_k)
 
     model_name = tool_config.model_name
-    if not model_name.startswith('nvdev'):
+    # Check if model supports function calling
+    supports_function_calling = not (model_name.startswith('nvdev') or 
+                                   'nemotron-super' in model_name or
+                                   'nvidia/llama-3_3-nemotron-super' in model_name)
+    
+    if supports_function_calling:
         tool = QueryEngineTool.from_defaults(
             query_engine,
             name="rag",
@@ -145,11 +151,49 @@ async def llama_index_rag_tool(tool_config: LlamaIndexRAGConfig, builder: Builde
         """
         RAG using llama-index querying Milvus vector store
         Args:
-            inputs: user query
+            inputs: user query (may include system messages in format "System: <msg>\nuser: <msg>")
         """
         try:
-            if not model_name.startswith("nvdev"):
-                agent_response = await agent.achat(inputs)
+            # Parse input to extract system prompts and user query
+            user_query = inputs
+            system_prompts = []
+            
+            if "System:" in inputs or inputs.startswith("System:"):
+                lines = inputs.split('\n')
+                user_parts = []
+                
+                for line in lines:
+                    if line.startswith("System:"):
+                        system_content = line[7:].strip()  # Remove "System:" prefix
+                        system_prompts.append(system_content)
+                        logger.info("Found system prompt: %s", system_content)
+                    elif line.startswith("user:"):
+                        user_content = line[5:].strip()  # Remove "user:" prefix
+                        user_parts.append(user_content)
+                    elif line.startswith("assistant:"):
+                        # Skip assistant messages
+                        continue
+                    elif not line.startswith("System:") and line.strip():
+                        # Any other non-empty content is considered user content
+                        user_parts.append(line.strip())
+                
+                user_query = " ".join(user_parts) if user_parts else inputs
+                logger.info("Extracted user query: %s", user_query)
+            
+            if supports_function_calling:
+                # Create the query with system prompts if any
+                if system_prompts:
+                    # For function calling agents, we need to incorporate system prompts differently
+                    # Create a combined prompt that includes the system instructions
+                    combined_query = ""
+                    for prompt in system_prompts:
+                        combined_query += f"System instruction: {prompt}\n"
+                    combined_query += f"User query: {user_query}"
+                    logger.info("Combined query for agent: %s", combined_query)
+                    agent_response = await agent.achat(combined_query)
+                else:
+                    agent_response = await agent.achat(user_query)
+                    
                 logger.info(
                     "Response from llama-index Agent querying Milvus: \n %s %s",
                     Fore.MAGENTA,
@@ -162,23 +206,77 @@ async def llama_index_rag_tool(tool_config: LlamaIndexRAGConfig, builder: Builde
                     Fore.MAGENTA,
                     type(query_engine),
                     query_engine,
-                    inputs,
+                    user_query,
                 )
-                response = query_engine.query(inputs)
-                output = response.response
-
-                # Log source information if available
-                if hasattr(response, "source_nodes") and response.source_nodes:
-                    logger.info(
-                        "Sources found: %d documents", len(response.source_nodes)
+                
+                # For direct query engine calls, we need to handle system prompts differently
+                if system_prompts:
+                    # Instead of modifying the QA template, we need to create a chat engine
+                    # that can handle system messages properly
+                    from llama_index.core.chat_engine import SimpleChatEngine
+                    from llama_index.core.memory import ChatMemoryBuffer
+                    from llama_index.core.llms import ChatMessage, MessageRole
+                    
+                    # Create system messages from the prompts
+                    system_instructions = " ".join(system_prompts)
+                    logger.info("System instructions for RAG: %s", system_instructions)
+                    logger.info("=== DEBUG: Using chat engine with system prompt ===")
+                    
+                    # Create a chat engine with system message support
+                    memory = ChatMemoryBuffer.from_defaults()
+                    chat_engine = SimpleChatEngine.from_defaults(
+                        llm=llm,
+                        memory=memory,
+                        system_prompt=system_instructions
                     )
-                    for i, node in enumerate(
-                        response.source_nodes[:3]
-                    ):  # Log first 3 sources
-                        source = node.metadata.get("source", "Unknown")
-                        score = getattr(node, "score", "N/A")
-                        logger.info("Source %d: %s (score: %s)", i + 1, source, score)
+                    
+                    # First, do the retrieval using the query engine
+                    logger.info("=== DEBUG: Retrieving context ===")
+                    retrieval_response = query_engine.query(user_query)
+                    
+                    # Get the context from the retrieval
+                    context_str = ""
+                    if hasattr(retrieval_response, "source_nodes") and retrieval_response.source_nodes:
+                        context_parts = []
+                        for node in retrieval_response.source_nodes:
+                            context_parts.append(node.text)
+                        context_str = "\n\n".join(context_parts)
+                        logger.info("=== DEBUG: Retrieved %d documents ===", len(retrieval_response.source_nodes))
+                    
+                    # Now use the chat engine with the retrieved context
+                    enhanced_query = f"Context information:\n{context_str}\n\nBased on the above context, answer this query: {user_query}"
+                    logger.info("=== DEBUG: Enhanced query: %s ===", enhanced_query[:200] + "...")
+                    
+                    # Chat with the system prompt
+                    logger.info("=== DEBUG: Calling chat engine with system prompt ===")
+                    chat_response = chat_engine.chat(enhanced_query)
+                    output = str(chat_response)
+                    logger.info("=== DEBUG: Chat engine response: %s ===", output[:200] + "...")
+                    
+                    # Log source information
+                    if hasattr(retrieval_response, "source_nodes") and retrieval_response.source_nodes:
+                        logger.info("Sources found: %d documents", len(retrieval_response.source_nodes))
+                        for i, node in enumerate(retrieval_response.source_nodes[:3]):
+                            source = node.metadata.get("source", "Unknown")
+                            score = getattr(node, "score", "N/A")
+                            logger.info("Source %d: %s (score: %s)", i + 1, source, score)
+                else:
+                    response = query_engine.query(user_query)
+                    output = response.response
 
+                    # Log source information if available
+                    if hasattr(response, "source_nodes") and response.source_nodes:
+                        logger.info(
+                            "Sources found: %d documents", len(response.source_nodes)
+                        )
+                        for i, node in enumerate(
+                            response.source_nodes[:3]
+                        ):  # Log first 3 sources
+                            source = node.metadata.get("source", "Unknown")
+                            score = getattr(node, "score", "N/A")
+                            logger.info("Source %d: %s (score: %s)", i + 1, source, score)
+
+            logger.info("Final RAG output: %s", output)
             return output
 
         except Exception as e:

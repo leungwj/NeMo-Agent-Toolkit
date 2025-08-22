@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import logging
+import re
 
 from nat.builder.builder import Builder
 from nat.builder.framework_enum import LLMFrameworkEnum
@@ -50,12 +51,98 @@ async def langchain_general_agent_as_tool(tool_config: LangChainGeneralAgentConf
         """
         Handle general questions using LangChain without RAG.
         Args:
-            inputs: User input
+            inputs: User input (may include system messages in format "System: <msg>\nuser: <msg>")
         """
         try:
-            output = await chain.ainvoke({"question": inputs})
-            logger.info("Output from LangChain general agent: %s", output)
-            return output
+            # Parse the input to extract messages and reconstruct proper message format
+            if inputs.startswith("System:") or "System:" in inputs:
+                # Parse the structured input to extract system and user messages
+                lines = inputs.split('\n')
+                messages = []
+                
+                for line in lines:
+                    if line.startswith("System:"):
+                        system_content = line[7:].strip()  # Remove "System:" prefix
+                        messages.append({"role": "system", "content": system_content})
+                        logger.info("Found system message: %s", system_content)
+                    elif line.startswith("user:"):
+                        user_content = line[5:].strip()  # Remove "user:" prefix
+                        messages.append({"role": "user", "content": user_content})
+                    elif line.startswith("assistant:"):
+                        assistant_content = line[10:].strip()  # Remove "assistant:" prefix
+                        messages.append({"role": "assistant", "content": assistant_content})
+                    elif not line.startswith("System:") and line.strip():
+                        # Any other non-empty content is considered user content
+                        messages.append({"role": "user", "content": line.strip()})
+                
+                # Convert to LangChain message format
+                from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
+                
+                langchain_messages = []
+                for msg in messages:
+                    if msg["role"] == "system":
+                        langchain_messages.append(SystemMessage(content=msg["content"]))
+                    elif msg["role"] == "user":
+                        langchain_messages.append(HumanMessage(content=msg["content"]))
+                    elif msg["role"] == "assistant":
+                        langchain_messages.append(AIMessage(content=msg["content"]))
+                
+                logger.info("Converted to %d LangChain messages", len(langchain_messages))
+                # Call LLM with structured messages
+                output = await llm.ainvoke(langchain_messages)
+                
+            else:
+                # Fallback for unstructured input - use the old approach
+                if "System:" in inputs or inputs.startswith("System:"):
+                    # Even unstructured input might have system prompts, let's try to parse them
+                    lines = inputs.split('\n')
+                    messages = []
+                    
+                    for line in lines:
+                        if line.startswith("System:"):
+                            system_content = line[7:].strip()  # Remove "System:" prefix
+                            messages.append({"role": "system", "content": system_content})
+                            logger.info("Found system message in fallback: %s", system_content)
+                        elif line.startswith("user:"):
+                            user_content = line[5:].strip()  # Remove "user:" prefix
+                            messages.append({"role": "user", "content": user_content})
+                        elif not line.startswith("System:") and not line.startswith("assistant:"):
+                            # Any other content is considered user content
+                            if line.strip():
+                                messages.append({"role": "user", "content": line.strip()})
+                    
+                    if messages:
+                        # Convert to LangChain message format
+                        from langchain_core.messages import SystemMessage, HumanMessage
+                        
+                        langchain_messages = []
+                        for msg in messages:
+                            if msg["role"] == "system":
+                                langchain_messages.append(SystemMessage(content=msg["content"]))
+                            elif msg["role"] == "user":
+                                langchain_messages.append(HumanMessage(content=msg["content"]))
+                        
+                        # Call LLM with structured messages
+                        output = await llm.ainvoke(langchain_messages)
+                    else:
+                        # Fallback to chain
+                        formatted_input = "You are a helpful assistant. Answer the following question in a friendly and informative way:\n\n" + inputs
+                        output = await chain.ainvoke({"question": inputs})
+                else:
+                    # Use the chain for pure user input
+                    output = await chain.ainvoke({"question": inputs})
+                
+            # Post-process the output to handle /no_think
+            final_output = output.content if hasattr(output, 'content') else str(output)
+            
+            # Check if no_think was requested and remove thinking sections
+            if "/no_think" in inputs and "<think>" in final_output:
+                final_output = re.sub(r'<think>.*?</think>', '', final_output, flags=re.DOTALL)
+                final_output = final_output.strip()
+                
+            logger.info("Output from LangChain general agent: %s", final_output)
+            return final_output
+            
         except Exception as e:
             logger.error("Error in LangChain general agent: %s", e)
             return "Sorry, I couldn't process your request at the moment."

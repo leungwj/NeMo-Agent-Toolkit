@@ -613,9 +613,31 @@ GlobalTypeConverter.register_converter(_generate_response_to_chat_response)
 
 # ======== ChatRequest Converters ========
 def _nat_chat_request_to_string(data: ChatRequest) -> str:
-    if isinstance(data.messages[-1].content, str):
-        return data.messages[-1].content
-    return str(data.messages[-1].content)
+    # Extract system messages and user content separately for better handling
+    system_messages = []
+    user_messages = []
+    
+    for message in data.messages:
+        if isinstance(message.content, str):
+            content = message.content
+        else:
+            content = str(message.content)
+            
+        if message.role.lower() == "system":
+            system_messages.append(content)
+        else:
+            user_messages.append(f"{message.role}: {content}")
+    
+    # Combine system messages at the beginning, followed by conversation
+    result_parts = []
+    if system_messages:
+        # Join all system messages and put them at the start
+        result_parts.append("System: " + " ".join(system_messages))
+    
+    if user_messages:
+        result_parts.extend(user_messages)
+    
+    return "\n".join(result_parts)
 
 
 GlobalTypeConverter.register_converter(_nat_chat_request_to_string)

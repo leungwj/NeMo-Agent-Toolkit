@@ -36,13 +36,13 @@ functions:
     timeout: 30.0
     connect: 30.0
     jira_domain: "https://taijingshen.atlassian.net" #added
-    jira_project_key: "CRM" #added
+    jira_project_key: "PM0" #added, CRM
     # hitl_approval_fn: "hitl_approval_tool"  # Commented out to remove HITL
   get_jira_tickets_tool:
     _type: get_jira_tickets_tool
     root_path: "./examples/HITL/por_to_jiratickets/data/"
     jira_domain: "https://taijingshen.atlassian.net" #added
-    jira_project_key: "CRM" #added
+    jira_project_key: "PM0" #added, CRM
   # hitl_approval_tool:  # Commented out to remove HITL
   #   _type: hitl_approval_tool
   #   prompt: "I would like to create Jira tickets for the extracted data."
@@ -50,23 +50,23 @@ functions:
 llms:
   extract_llm:
     _type: nim
-    # model_name: meta/llama-3.3-70b-instruct
+    model_name: meta/llama-3.3-70b-instruct
     base_url: "http://localhost:8001/v1"
-    model_name : meta/llama-3.3-70b-instruct
+    # model_name : meta/llama-3.1-405b-instruct
     # model_name: "deepseek-ai/deepseek-r1"
     temperature: 0.0
     seed: 33
-    max_tokens: 2000
+    max_tokens: 8000
   agent_llm:
     _type: nim
     # model_name: "deepseek-ai/deepseek-r1"
     # model_name: mistralai/mixtral-8x22b-instruct-v0.1
-    # model_name: meta/llama-3.3-70b-instruct
+    model_name: meta/llama-3.3-70b-instruct
     base_url: "http://localhost:8001/v1"
-    model_name : meta/llama-3.3-70b-instruct
+    # model_name : meta/llama-3.1-405b-instruct
     temperature: 0.0
     seed: 33
-    max_tokens: 2000
+    max_tokens: 8000
 
 workflow:
   _type: react_agent

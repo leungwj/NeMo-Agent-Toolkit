@@ -29,7 +29,7 @@ functions:
     # model_name : meta/llama-3.3-70b-instruct
     model_name : meta/llama-3.1-405b-instruct
     # model_name : meta/llama-4-scout-17b-16e-instruct
-    # model_name : nvidia/llama-3.3-nemotron-super-49b-v1.5
+    model_name : nvidia/llama-3_3-nemotron-super-49b-v1_5
     embedding_name : nim_embedder
   # langchain_researcher_tool:
   #   _type: langchain_researcher_tool
@@ -78,10 +78,9 @@ llms:
     # base_url: "http://localhost:8005/v1"
     # model_name: nvidia/llama-3.3-nemotron-super-49b-v1
     # model_name : meta/llama-3.3-70b-instruct
-    # model_name : meta/llama-3.3-70b-instruct
-    model_name: meta/llama-3.1-405b-instruct
+    # model_name: meta/llama-3.1-405b-instruct
     # model_name : meta/llama-4-scout-17b-16e-instruct
-    # model_name : nvidia/llama-3.3-nemotron-super-49b-v1.5
+    model_name : nvidia/llama-3_3-nemotron-super-49b-v1_5
     temperature: 0.0
     max_tokens: 4096
 

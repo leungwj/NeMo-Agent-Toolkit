@@ -30,6 +30,7 @@ dependencies = [
   "jsonpath-ng~=1.7",
   "llama-index-vector-stores-milvus>=0.8.7",
   "mcp~=1.10",
+  "mlflow>=3.3.1",
   "networkx~=3.4",
   "numpy~=1.26",
   "openinference-semantic-conventions~=0.1.14",

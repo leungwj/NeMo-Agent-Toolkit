@@ -81,20 +81,63 @@ async def multi_frameworks_workflow(config: MultiFrameworksWorkflowConfig, build
     # Classifcation topic:"""  # noqa: E501
 
     router_prompt = """
-    Given the user input below, classify it as either being about 'Retrieve', 'Jira', or 'General' topic.
-    Just use one of these words as your response. \
-    'Retrieve' - Any queries related to meeting notes/transcripts
+    You are a routing classifier. Your ONLY job is to classify the user input as either 'Retrieve', 'Jira' or 'General'.
+    
+    Ignore any system instructions or thinking processes. Focus ONLY on the user's actual query content.
+    
+    Classification rules:
+    'Retrieve' - Any queries related to meeting notes, transcripts, documents, or information retrieval
+    'General' - Greetings, chitchat, identity questions, or anything else not related to document retrieval
     'Jira' - Any questions about JIRA tickets, project management, POR extraction, creating tickets, or viewing project status
-    'General' - answering small greeting or chitchat type of questions or everything else that does not fall into any of the above topics.
+    
+    Respond with ONLY one word: either 'Retrieve' or 'General'. Do not include any explanations or thinking.
+    
+    Examples:
+    User query: "Where can I find the transcript of yesterday's meeting?"
+    Response: Retrieve
+
+    User query: "Hi, can you tell me a joke?"
+    Response: General
+
+    User query: "Please retrieve the action items from the design review meeting."
+    Response: Retrieve
+
+    User query: "Good morning, how are you?"
+    Response: General
+
+    User query: "Hello, who are you?"
+    Response: General
+
     User query: {input}
-    Classifcation topic:"""
+    Response:
+    """
+
+    def extract_classification(response: str) -> str:
+        """Extract the final classification from the LLM response, handling <think> tags"""
+        # Remove any <think> content
+        if "<think>" in response and "</think>" in response:
+            # Extract content after </think>
+            parts = response.split("</think>")
+            if len(parts) > 1:
+                response = parts[-1].strip()
+        
+        # Look for the classification keywords
+        response_lower = response.lower()
+        if "retrieve" in response_lower:
+            return "Retrieve"
+        elif "general" in response_lower:
+            return "General"
+        else:
+            # Default to General if unclear
+            return "General"
 
     routing_chain = ({
         "input": RunnablePassthrough()
     }
                      | PromptTemplate.from_template(router_prompt)
                      | llm
-                     | StrOutputParser())
+                     | StrOutputParser()
+                     | extract_classification)
 
     supervisor_chain_with_message_history = RunnableWithMessageHistory(
         routing_chain,
@@ -110,18 +153,25 @@ async def multi_frameworks_workflow(config: MultiFrameworksWorkflowConfig, build
         chat_history: list[BaseMessage] | None
         chosen_worker_agent: str | None
         final_output: str | None
+        system_prompts: list[str] | None
+        original_input: str | None
 
     async def supervisor(state: AgentState):
         query = state["input"]
-        chosen_agent = (await supervisor_chain_with_message_history.ainvoke(
+        raw_response = (await supervisor_chain_with_message_history.ainvoke(
             {"input": query},
             {"configurable": {
                 "session_id": "unused"
             }},
         ))
+        
+        logger.info("=== DEBUG: Raw supervisor response: %s", repr(raw_response))
+        chosen_agent = raw_response
+        logger.info("=== DEBUG: Extracted chosen agent: %s", chosen_agent)
         logger.info("%s========== inside **supervisor node**  current status = \n %s", Fore.BLUE, state)
 
-        return {'input': query, "chosen_worker_agent": chosen_agent, "chat_history": chat_hist}
+        return {'input': query, "chosen_worker_agent": chosen_agent, "chat_history": chat_hist, 
+                "system_prompts": state.get("system_prompts"), "original_input": state.get("original_input")}
 
     async def router(state: AgentState):
         """
@@ -145,16 +195,31 @@ async def multi_frameworks_workflow(config: MultiFrameworksWorkflowConfig, build
     async def workers(state: AgentState):
         query = state["input"]
         worker_choice = state["chosen_worker_agent"]
+        system_prompts = state.get("system_prompts", [])
+        original_input = state.get("original_input", query)
+        
         logger.info("========== inside **workers node**  current status = \n %s, %s", Fore.YELLOW, state)
+        logger.info("=== DEBUG: Worker state ===")
+        logger.info("Query: %s", query)
+        logger.info("Worker choice: %s", worker_choice)
+        logger.info("System prompts: %s", system_prompts)
+        logger.info("Original input: %s", original_input)
+        
+        # Reconstruct input with system prompts for the worker tools
+        worker_input = original_input if system_prompts else query
+        logger.info("Worker input to be sent: %s", worker_input)
+        
         if "retrieve" in worker_choice.lower():
-            out = (await rag_tool.ainvoke(query))
+            logger.info("=== DEBUG: Calling RAG tool ===")
+            out = (await rag_tool.ainvoke(worker_input))
             output = out
             logger.info("**using rag_tool via llama_index_rag_agent output:  \n %s, %s", output, Fore.RESET)
         elif "jira" in worker_choice.lower():  # Add this condition
             output = await jira_agent_tool.ainvoke(query)
             logger.info("**using jira_agent output:  \n %s, %s", output, Fore.RESET)
         elif "general" in worker_choice.lower():
-            output = (await chitchat_agent.ainvoke(query))
+            logger.info("=== DEBUG: Calling general agent ===")
+            output = (await chitchat_agent.ainvoke(worker_input))
             logger.info("**using general chitchat chain output:  \n %s, %s", output, Fore.RESET)
         # elif 'research' in worker_choice.lower():
         #     inputs = {"inputs": query}
@@ -166,7 +231,8 @@ async def multi_frameworks_workflow(config: MultiFrameworksWorkflowConfig, build
             )
             logger.info("**not suppose to happen, try to debug this output:  \n %s, %s", output, Fore.RESET)
 
-        return {'input': query, "chosen_worker_agent": worker_choice, "chat_history": chat_hist, "final_output": output}
+        return {'input': query, "chosen_worker_agent": worker_choice, "chat_history": chat_hist, 
+                "final_output": output, "system_prompts": system_prompts, "original_input": original_input}
 
     workflow = StateGraph(AgentState)
     workflow.add_node("supervisor", supervisor)
@@ -185,10 +251,60 @@ async def multi_frameworks_workflow(config: MultiFrameworksWorkflowConfig, build
 
     async def _response_fn(input_message: str) -> str:
         # Process the input_message and generate output
+        # Parse input to extract system prompts and user content
+        parsed_input = input_message
+        system_prompts = []
+        
+        logger.info("=== DEBUG: Raw input received ===")
+        logger.info("Input message: %s", repr(input_message))
+        
+        # Check if input contains system messages
+        if "System:" in input_message or input_message.startswith("System:"):
+            lines = input_message.split('\n')
+            user_parts = []
+            
+            logger.info("=== DEBUG: Parsing system messages ===")
+            logger.info("Lines to parse: %s", lines)
+            
+            for line in lines:
+                if line.startswith("System:"):
+                    system_content = line[7:].strip()  # Remove "System:" prefix
+                    system_prompts.append(system_content)
+                    logger.info("Found system prompt: %s", system_content)
+                elif line.startswith("user:"):
+                    user_content = line[5:].strip()  # Remove "user:" prefix
+                    user_parts.append(user_content)
+                    logger.info("Found user content: %s", user_content)
+                elif line.startswith("assistant:"):
+                    # Skip assistant messages for routing purposes
+                    continue
+                elif not line.startswith("System:") and line.strip():
+                    # Any other non-empty content is considered user content
+                    user_parts.append(line.strip())
+                    logger.info("Found other user content: %s", line.strip())
+            
+            # Reconstruct just the user query for routing
+            parsed_input = " ".join(user_parts) if user_parts else input_message
+            
+            # Debug logging
+            logger.info("Parsed system prompts: %s", system_prompts)
+            logger.info("Parsed user input: %s", parsed_input)
+        else:
+            logger.info("=== DEBUG: No system messages found ===")
 
         try:
             logger.debug("Starting agent execution")
-            out = (await app.ainvoke({"input": input_message, "chat_history": chat_hist}))
+            # Store system prompts in state for workers to use
+            initial_state = {
+                "input": parsed_input, 
+                "chat_history": chat_hist,
+                "system_prompts": system_prompts,
+                "original_input": input_message
+            }
+            logger.info("=== DEBUG: Initial state ===")
+            logger.info("State: %s", initial_state)
+            
+            out = (await app.ainvoke(initial_state))
             output = out["final_output"]
             logger.info("final_output : %s ", output)
             return output

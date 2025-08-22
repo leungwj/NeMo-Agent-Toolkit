@@ -15,6 +15,7 @@
 
 import asyncio
 import logging
+import mlflow
 import os
 import time
 import typing
@@ -208,9 +209,48 @@ class FastApiFrontEndPluginWorker(FastApiFrontEndPluginWorkerBase):
 
     def __init__(self, config: Config):
         super().__init__(config)
-
         self._outstanding_flows: dict[str, FlowState] = {}
         self._outstanding_flows_lock = asyncio.Lock()
+
+    async def configure(self, app: FastAPI, builder: WorkflowBuilder):
+        # Initialize MLflow auto-logging at application startup
+        await self._setup_mlflow_tracing()
+
+        # Do things like setting the base URL and global configuration options
+        app.root_path = self.front_end_config.root_path
+
+        await self.add_routes(app, builder)
+
+    async def _setup_mlflow_tracing(self):
+        """Configure MLflow auto-logging for all supported frameworks."""
+        try:
+            # Enable automatic tracing for different frameworks
+            # These will automatically instrument any calls made by these libraries
+            
+            # For OpenAI calls
+            mlflow.openai.autolog()
+            logger.info("MLflow OpenAI auto-logging enabled")
+            
+            # For LangChain workflows
+            mlflow.langchain.autolog()
+            logger.info("MLflow LangChain auto-logging enabled")
+            
+            # For LlamaIndex operations (especially for your document indexing)
+            mlflow.llama_index.autolog()
+            logger.info("MLflow LlamaIndex auto-logging enabled")
+            
+            # For DSPy if you're using it for prompt optimization
+            mlflow.dspy.autolog()
+            logger.info("MLflow DSPy auto-logging enabled")
+            
+            # Set up MLflow tracking (optional - configure based on your needs)
+            # mlflow.set_tracking_uri("your-mlflow-server-uri")  # If using remote MLflow
+            # mlflow.set_experiment("nat-fastapi-app")  # Set experiment name
+            
+            logger.info("MLflow auto-logging setup completed successfully")
+            
+        except Exception as e:
+            logger.warning("Failed to setup MLflow auto-logging: %s. Continuing without tracing.", e)
 
     @staticmethod
     async def _periodic_cleanup(name: str, job_store: JobStore, sleep_time_sec: int = 300):
